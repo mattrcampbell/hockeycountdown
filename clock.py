@@ -30,7 +30,18 @@ GPIO.output(PIN_DATA, 0)
 GPIO.output(PIN_CLOCK, 0)
 GPIO.output(PIN_LATCH, 0)
 
-matrix = RGBMatrix()
+#matrix = RGBMatrix()
+
+options = RGBMatrixOptions()
+options.rows = 32
+options.cols = 64
+options.chain_length = 2
+options.parallel = 1
+options.hardware_mapping = 'adafruit-hat'  # If you have an Adafruit HAT: 'adafruit-hat'
+options.gpio_slowdown = 2
+
+matrix = RGBMatrix(options = options)
+
 
 symbols = {
     #   _7_
@@ -131,33 +142,37 @@ def doGame( nextGame, duration ):
     posLoc = posNG = offscreen_canvas.width
     t_end = time.time() + duration
 
-    while True:
+    while time.time() < t_end:
         offscreen_canvas.Clear()
         if nextGame.name.find("Women") != -1:
-            lenT = graphics.DrawText(offscreen_canvas, tightfont, 1, 8, orange, "Women")
+            lenT = graphics.DrawText(offscreen_canvas, tightfont, 13, 8, orange, "Next Women's Game")
         else:
-            lenT = graphics.DrawText(offscreen_canvas, tightfont, 8, 8, orange, "Men")
+            lenT = graphics.DrawText(offscreen_canvas, tightfont, 19, 8, orange, "Next Men's Game")
         
         if nextGame.location.find("Polisseni") != -1:
-            len = graphics.DrawText(offscreen_canvas, medfont, 0, 18, orange, "HOME!")
+            len = graphics.DrawText(offscreen_canvas, tightfont, posLoc, 31, orange, "HOME vs"+ nextGame.name.split(" vs ",1)[1].replace("  "," "))
         else:
-            len = graphics.DrawText(offscreen_canvas, tightfont, posLoc, 18, white, nextGame.name.split(" at ",1)[1])
-            posLoc -= 1.5
-            if (posLoc + len < 0):
-                if time.time() > t_end:
-                    break
-                posLoc = offscreen_canvas.width
+            len = graphics.DrawText(offscreen_canvas, tightfont, posLoc, 31, white, "Away vs"+nextGame.name.split(" at ",1)[1].replace("  "," "))
+        posLoc -= 1.5
+        if (posLoc + len < 0):
+            if time.time() > t_end:
+                break
+            posLoc = offscreen_canvas.width
         
-        len = graphics.DrawText(offscreen_canvas, smfont, 0, 26, white, nextGame.begin.astimezone(tz.tzlocal()).strftime("%A"))
-        len = graphics.DrawText(offscreen_canvas, smfont, 0, 32, white, "{d:%l}:{d.minute:02}{d:%p}".format(d=nextGame.begin.astimezone(tz.tzlocal())))
+        len = graphics.DrawText(offscreen_canvas, tightfont, 0, 18, white, nextGame.begin.astimezone(tz.tzlocal()).strftime("%A")+"{d:%l}:{d.minute:02}{d:%p}".format(d=nextGame.begin.astimezone(tz.tzlocal())))
 
         time.sleep(0.05)
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
         until = nextGame.begin.astimezone(tz.tzlocal()).replace(tzinfo=tz.tzlocal()) - datetime.datetime.now().replace(tzinfo=tz.tzlocal())
         if until.days > 0:
+            #print(until.seconds//3600)
+            #print((until.seconds//60)%60)
             shiftout(symbols[str("d")])
-            shiftout(symbols[str(until.days)])
+            if until.seconds//3600 > 12:
+                shiftout(symbols[str(until.days+1)])
+            else:
+                shiftout(symbols[str(until.days)])
             shiftout(symbols[str("-")])
             shiftout(symbols[str(" ")])
         else:
@@ -200,7 +215,7 @@ while True:
     len = graphics.DrawText(offscreen_canvas, tightfont, 4, 10, white, "Time")
     len = graphics.DrawText(offscreen_canvas, tightfont, 7, 20, white, "Now")
     offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
-    doClock(5)
+    #doClock(5)
     doGame(nextMensGame, 15)
     doGame(nextWomensGame, 15)
     if(lastCalUpdate + 60*60 < time.time()):
