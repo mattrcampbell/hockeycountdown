@@ -21,14 +21,17 @@ PIN_CLOCK = 3
 PIN_DATA  = 21
 PIN_LATCH = 23
 PIN_CLOCK = 19
+PIN_ENA   = 24
 
 GPIO.setup(PIN_DATA,  GPIO.OUT)
 GPIO.setup(PIN_LATCH, GPIO.OUT)
 GPIO.setup(PIN_CLOCK, GPIO.OUT)
+GPIO.setup(PIN_ENA,   GPIO.OUT)
 
 GPIO.output(PIN_DATA, 0)
 GPIO.output(PIN_CLOCK, 0)
 GPIO.output(PIN_LATCH, 0)
+GPIO.output(PIN_ENA, 0)
 
 #matrix = RGBMatrix()
 
@@ -37,7 +40,7 @@ options.rows = 32
 options.cols = 64
 options.chain_length = 2
 options.parallel = 1
-options.hardware_mapping = 'adafruit-hat'  # If you have an Adafruit HAT: 'adafruit-hat'
+options.hardware_mapping = 'adafruit-hat'
 options.gpio_slowdown = 2
 
 matrix = RGBMatrix(options = options)
@@ -105,6 +108,8 @@ medfont = graphics.Font()
 medfont.LoadFont("rpi-rgb-led-matrix/fonts/6x13.bdf")
 tightfont = graphics.Font()
 tightfont.LoadFont("rpi-rgb-led-matrix/fonts/clR6x12.bdf")
+largefont = graphics.Font()
+largefont.LoadFont("rpi-rgb-led-matrix/fonts/10x20.bdf")
 white = graphics.Color(200, 200, 200)
 yellow = graphics.Color(255, 255, 0)
 orange = graphics.Color(255, 165, 0)
@@ -141,8 +146,16 @@ def doGame( nextGame, duration ):
     global offscreen_canvas, graphics
     posLoc = posNG = offscreen_canvas.width
     t_end = time.time() + duration
+    now = time.time()
+    btime = time.time() + 2
+    blink = 0
 
-    while time.time() < t_end:
+    while now < t_end:
+        now = time.time()
+        if btime < now:
+            blink = not blink
+            btime = now+2
+
         offscreen_canvas.Clear()
         if nextGame.name.find("Women") != -1:
             lenT = graphics.DrawText(offscreen_canvas, tightfont, 13, 8, orange, "Next Women's Game")
@@ -168,13 +181,19 @@ def doGame( nextGame, duration ):
         if until.days > 0:
             #print(until.seconds//3600)
             #print((until.seconds//60)%60)
-            shiftout(symbols[str("d")])
-            if until.seconds//3600 > 12:
-                shiftout(symbols[str(until.days+1)])
+            if blink:
+                shiftout(symbols[str(" ")])
+                shiftout(symbols[str("h")])
+                shiftout(symbols[str((until.seconds//3600)%10)])
+                shiftout(symbols[str((until.seconds//3600)//10)])
             else:
-                shiftout(symbols[str(until.days)])
-            shiftout(symbols[str("-")])
-            shiftout(symbols[str(" ")])
+                shiftout(symbols[str(" ")])
+                shiftout(symbols[str("d")])
+                if until.seconds//3600 > 12:
+                    shiftout(symbols[str(until.days+1)])
+                else:
+                    shiftout(symbols[str(until.days)])
+                shiftout(symbols[str("-")])
         else:
             h = until.seconds//3600
             m = (until.seconds%3600)//60
@@ -189,12 +208,23 @@ def doGame( nextGame, duration ):
         GPIO.output(PIN_LATCH, 1)
         time.sleep(0.00000001)
         GPIO.output(PIN_LATCH, 0)
-        time.sleep(.01);
+        time.sleep(.01)
+
+def suffix(d):
+    return 'th' if 11<=d<=13 else {1:'st',2:'nd',3:'rd'}.get(d%10, 'th')
+
+def custom_strftime(format, t):
+    return t.strftime(format).replace('{S}', str(t.day) + suffix(t.day))
 
 
 def doClock( duration ):
+    global offscreen_canvas, graphics
     i=0;
     t_end = time.time() + duration
+    offscreen_canvas.Clear()
+    len = graphics.DrawText(offscreen_canvas, largefont, 4, 17, white, "Current Time")
+    len = graphics.DrawText(offscreen_canvas, tightfont, 5, 29, white, custom_strftime("%a, %b {S}, %Y", datetime.datetime.now()))
+    offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
     while time.time() < t_end:
         now = datetime.datetime.now()
         shiftout(symbols[str(now.minute%10)])
@@ -211,11 +241,7 @@ def doClock( duration ):
         i+=1
 
 while True:
-    offscreen_canvas.Clear()
-    len = graphics.DrawText(offscreen_canvas, tightfont, 4, 10, white, "Time")
-    len = graphics.DrawText(offscreen_canvas, tightfont, 7, 20, white, "Now")
-    offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
-    #doClock(5)
+    doClock(5)
     doGame(nextMensGame, 15)
     doGame(nextWomensGame, 15)
     if(lastCalUpdate + 60*60 < time.time()):
