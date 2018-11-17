@@ -4,6 +4,7 @@
 import RPi.GPIO as GPIO
 import time
 import datetime
+import colorsys
 from dateutil import tz
 from datetime import timedelta
 
@@ -178,7 +179,12 @@ def doGame( nextGame, duration ):
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
         until = nextGame.begin.astimezone(tz.tzlocal()).replace(tzinfo=tz.tzlocal()) - datetime.datetime.now().replace(tzinfo=tz.tzlocal())
-        if until.days > 0:
+        if until.days > 9:
+            shiftout(symbols[str(" ")])
+            shiftout(symbols[str("d")])
+            shiftout(symbols[str(until.days%10)])
+            shiftout(symbols[str(until.days//10)])
+        elif until.days > 0:
             #print(until.seconds//3600)
             #print((until.seconds//60)%60)
             if blink:
@@ -189,10 +195,10 @@ def doGame( nextGame, duration ):
             else:
                 shiftout(symbols[str(" ")])
                 shiftout(symbols[str("d")])
-                if until.seconds//3600 > 12:
-                    shiftout(symbols[str(until.days+1)])
-                else:
-                    shiftout(symbols[str(until.days)])
+                #if until.seconds//3600 > 12 and until.days < 9:
+                #    shiftout(symbols[str(until.days+1)])
+                #else:
+                shiftout(symbols[str(until.days)])
                 shiftout(symbols[str("-")])
         else:
             h = until.seconds//3600
@@ -221,11 +227,13 @@ def doClock( duration ):
     global offscreen_canvas, graphics
     i=0;
     t_end = time.time() + duration
-    offscreen_canvas.Clear()
-    len = graphics.DrawText(offscreen_canvas, largefont, 4, 17, white, "Current Time")
-    len = graphics.DrawText(offscreen_canvas, tightfont, 5, 29, white, custom_strftime("%a, %b {S}, %Y", datetime.datetime.now()))
-    offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
     while time.time() < t_end:
+        color = colorsys.hsv_to_rgb(i/1000, 1.0, 1.0)
+        #print(color)
+        offscreen_canvas.Clear()
+        len = graphics.DrawText(offscreen_canvas, largefont, 4, 17, graphics.Color(color[0]*255, color[1]*255, color[2]*255), "Current Time")
+        len = graphics.DrawText(offscreen_canvas, tightfont, 5, 29, white, custom_strftime("%a, %b {S}, %Y", datetime.datetime.now()))
+        offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
         now = datetime.datetime.now()
         shiftout(symbols[str(now.minute%10)])
         shiftout(symbols[str(now.minute//10)])
@@ -238,7 +246,7 @@ def doClock( duration ):
         time.sleep(0.00000001)
         GPIO.output(PIN_LATCH, 0)
         time.sleep(.1);
-        i+=1
+        i+=10
 
 while True:
     doClock(5)
