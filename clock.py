@@ -13,6 +13,7 @@ from urllib.request import urlopen,Request
 from urllib.parse import urlencode
 
 from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
+from PIL import Image
 
 GPIO.setmode(GPIO.BOARD)
 PIN_DATA  = 5
@@ -46,6 +47,16 @@ options.gpio_slowdown = 2
 
 matrix = RGBMatrix(options = options)
 
+
+rithockey = Image.open("rithockey.png")
+image       = Image.new('RGBA', (matrix.width, matrix.height))
+image.paste(rithockey, (0,0), mask=rithockey)
+
+
+# Make image fit our screen.
+#image.thumbnail((matrix.width, matrix.height), Image.ANTIALIAS)
+
+#matrix.SetImage(image.convert('RGB'))
 
 symbols = {
     #   _7_
@@ -249,6 +260,8 @@ def doClock( duration ):
         i+=10
 
 while True:
+    matrix.SetImage(image.convert('RGB'), 0, 0)
+    time.sleep(10)
     doClock(5)
     doGame(nextMensGame, 15)
     doGame(nextWomensGame, 15)
