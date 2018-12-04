@@ -7,6 +7,7 @@ import datetime
 import colorsys
 import os
 import json
+import config
 from dateutil import tz
 from datetime import timedelta
 
@@ -316,8 +317,8 @@ def doTransition():
 weatherTime = 0
 try:
     while True:
-        #doGame(nextMensGame, 15)
-        #doGame(nextWomensGame, 15)
+        doGame(nextMensGame, 15)
+        doGame(nextWomensGame, 15)
         currentTime = time.time()
         if(lastCalUpdate + 60*60 < time.time()):
             nextMensGame, nextWomensGame = updateCalendars()
@@ -327,7 +328,7 @@ try:
             try:
                 print("Get weather...\n");
                 weatherTime = currentTime
-                f = urlopen('http://api.wunderground.com/api/165cd8d993423cf4/geolookup/conditions/q/NY/Rochester.json')
+                f = urlopen('http://api.wunderground.com/api/'+config.wapi+'/geolookup/conditions/q/NY/Rochester.json')
                 json_string = f.read().decode('utf-8')
                 parsed_json = json.loads(json_string)
                 location = parsed_json['location']['city']
