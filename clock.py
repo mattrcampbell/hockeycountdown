@@ -6,6 +6,7 @@ import time
 import datetime
 import colorsys
 import os
+import json
 from dateutil import tz
 from datetime import timedelta
 
@@ -251,18 +252,34 @@ def custom_strftime(format, t):
     return t.strftime(format).replace('{S}', str(t.day) + suffix(t.day))
 
 
-def doClock( duration ):
+def doClock( duration, temp, weather, icon ):
     global offscreen_canvas, graphics
     i=0;
     t_end = time.time() + duration
     while time.time() < t_end:
-        color = colorsys.hsv_to_rgb(i/1000, 1.0, 1.0)
+        #color = colorsys.hsv_to_rgb(i/1000, 1.0, 1.0)
         #print(color)
         offscreen_canvas.Clear()
         image = Image.new('RGBA', (matrix.width, matrix.height))
         imageDraw = ImageDraw.Draw(image)
-        imageDraw.text( (4, 0), "Current Time", font=largefont, fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
-        imageDraw.text( (5, 16), custom_strftime("%a, %b {S}, %Y", datetime.datetime.now()), font=tightfont, fill=white)
+        image.paste(icon, (0,0) )
+        i = .7-((temp/100)*.7)
+        color = colorsys.hsv_to_rgb(i, 1.0, 1.0)
+        imageDraw.text( (33, 0), str(temp), font=largefont, fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
+        imageDraw.arc( (55,0,59,4),0,360,fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
+        weather = "Partly Cloudy"
+        f = largefont
+        xo = 0
+        len = imageDraw.textsize(weather, font=f)[0]
+        if len > 128-62:
+            f=tightfont
+            xo = 7
+            len = imageDraw.textsize(weather, font=f)[0]
+            if len > 128-62:
+                f=smfont
+                xo = 9
+        imageDraw.text( (62, xo), weather, font=f, fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
+        imageDraw.text( (33, 20), custom_strftime("%a, %b {S}", datetime.datetime.now()), font=tightfont, fill=white)
         offscreen_canvas.SetImage(image.convert('RGB'), 0, 0)
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
         now = datetime.datetime.now()
@@ -279,12 +296,51 @@ def doClock( duration ):
         time.sleep(.1);
         i+=10
 
-while True:
-    doClock(5)
-    doGame(nextMensGame, 15)
-    doGame(nextWomensGame, 15)
-    if(lastCalUpdate + 60*60 < time.time()):
-        nextMensGame, nextWomensGame = updateCalendars()
-        lastCalUpdate = time.time() 
-	
-GPIO.cleanup() 
+def doTransition():
+    global offscreen_canvas, graphics, matrix
+
+    image = Image.new('RGBA', (matrix.width, matrix.height))
+    imageDraw = ImageDraw.Draw(image)
+    image.paste(tigerhead, (0, 0), tigerhead)
+    for i in range(matrix.width):
+        offscreen_canvas.Clear()
+        offscreen_canvas.SetImage(image.convert('RGB'), i, 0)
+        offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+        time.sleep(.001);
+    for i in range(tigerhead.width):
+        offscreen_canvas.Clear()
+        offscreen_canvas.SetImage(image.convert('RGB'), i-tigerhead.width, 0)
+        offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+        time.sleep(.001);
+
+weatherTime = 0
+try:
+    while True:
+        #doGame(nextMensGame, 15)
+        #doGame(nextWomensGame, 15)
+        currentTime = time.time()
+        if(lastCalUpdate + 60*60 < time.time()):
+            nextMensGame, nextWomensGame = updateCalendars()
+            lastCalUpdate = currentTime 
+
+        if weatherTime+600 < currentTime:
+            try:
+                print("Get weather...\n");
+                weatherTime = currentTime
+                f = urlopen('http://api.wunderground.com/api/165cd8d993423cf4/geolookup/conditions/q/NY/Rochester.json')
+                json_string = f.read().decode('utf-8')
+                parsed_json = json.loads(json_string)
+                location = parsed_json['location']['city']
+                tempf = int(round(parsed_json['current_observation']['temp_f']))
+                weather = parsed_json['current_observation']['weather']
+                icon = parsed_json['current_observation']['icon']
+                iconImg = Image.open("icons/32x32/"+icon+".png")
+                print ("Current temperature in %s is: %s" % (location, tempf))
+                f.close()
+            except:
+                print ("Can't get weather data\n")
+        
+        doClock(5, tempf, weather, iconImg)
+
+finally:
+    GPIO.cleanup() 
