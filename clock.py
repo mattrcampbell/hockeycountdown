@@ -1,6 +1,7 @@
 #
 # Office hockey clock
 #
+import sys,traceback
 import RPi.GPIO as GPIO
 import time
 import datetime
@@ -8,10 +9,15 @@ import colorsys
 import os
 import json
 import config
+import re
+from snow import Snow
+
+from io import BytesIO
+
 from dateutil import tz
 from datetime import timedelta
 
-from ics import Calendar, Event
+from icalendar import Calendar, Event
 from urllib.request import urlopen,Request
 from urllib.parse import urlencode
 
@@ -43,9 +49,6 @@ GPIO.output(PIN_CLOCK, 0)
 GPIO.output(PIN_LATCH, 0)
 GPIO.output(PIN_ENA, 0)
 
-
-#matrix = RGBMatrix()
-
 options = RGBMatrixOptions()
 options.rows = 32
 options.cols = 64
@@ -56,14 +59,38 @@ options.gpio_slowdown = 2
 
 matrix = RGBMatrix(options = options)
 
+weather = None #Snow(matrix.width, matrix.height)
+with open('icons.json') as f:
+    iconmap = json.load(f)
+
+image = Image.open("sox.png")
+sox = Image.new('RGBA', (matrix.width, matrix.height))
+sox.paste(image, (0,0), mask=image)
 
 image = Image.open("tigerhead.png")
 tigerhead = Image.new('RGBA', (matrix.width, matrix.height))
 tigerhead.paste(image, (0,0), mask=image)
 
+image = Image.open("barons.png")
+barons = Image.new('RGBA', (matrix.width, matrix.height))
+barons.paste(image, (0,0), mask=image)
+
+image = Image.open("blues.png")
+blues = Image.new('RGBA', (matrix.width, matrix.height))
+blues.paste(image, (0,0), mask=image)
+
 image = Image.open("rithockey.png")
 rithockey = Image.new('RGBA', (matrix.width, matrix.height))
 rithockey.paste(image, (0,0), mask=image)
+
+calendars = [ 
+{ "name":"Red Sox", "url":"http://api.calreply.net/webcal/24b4e4c1-ac1b-4c0f-ac16-f0f730736b56", "icon":sox, "pattern":None},
+{ "name":"Men's Hockey", "url":"http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=9", "icon":tigerhead, "pattern":None},
+{ "name":"Women's Hockey", "url":"http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=10", "icon":tigerhead, "pattern":None},
+{ "name":"Barons", "url":"http://sectionvhockey.org/calendar_events/calendar/3095/168976/-1/0/0/none/true.ics?1543938015", "icon":blues, "pattern":"Bighton"},
+{ "name":"Blues", "url":"http://my.sportngin.com/ical/my_teams?team_ids[]=2920662", "icon":barons, "pattern":None}
+]
+
 
 # Make image fit our screen.
 #image.thumbnail((matrix.width, matrix.height), Image.ANTIALIAS)
@@ -123,6 +150,19 @@ def shiftout(byte):
         time.sleep(0.00000001)
         #print "\n";
 
+def putClock(string):
+    #print("Put to clock ["+string+"]\n")
+    shiftout(symbols[string[3]])
+    shiftout(symbols[string[2]])
+    shiftout(symbols[string[1]])
+    shiftout(symbols[string[0]])
+    GPIO.output(PIN_LATCH, 1)
+    time.sleep(0.00000001)
+    GPIO.output(PIN_LATCH, 0)
+
+putClock("8888")
+
+
 offscreen_canvas = matrix.CreateFrameCanvas()
 font = graphics.Font()
 font.LoadFont("rpi-rgb-led-matrix/fonts/6x9.bdf")
@@ -135,36 +175,90 @@ white  = (200, 200, 200)
 yellow = (255, 255, 0)
 orange = (255, 165, 0)
 
-def getCalendar( url ):
+def oldgetCalendar( url, check = None ):
     user_agent = 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'
     headers = { 'User-Agent' : user_agent }
     values = {}
 
     data = urlencode(values).encode('utf-8')
 
-    req = Request(url, data, headers)
+    #req = Request(url, data, headers)
+    req = Request(url, None, headers)
     response = urlopen(req)
-    c = Calendar(response.read().decode('iso-8859-1'))
-    earliest = c.events[0]
+    r = response.read().decode('iso-8859-1')
+    r = re.sub(r';X-RICAL-TZSOURCE=TZINFO', '', r, flags=re.DOTALL)
+    #print(r)
+    c = Calendar(r)
+    earliest = None #c.events[0]
     for e in c.events:
+        if check is not None and str(e['SUMMARY']).find(check) == -1:
+            continue
         if e.begin.astimezone(tz.tzlocal()).isoformat() < datetime.datetime.now().isoformat():
-            break
-        if earliest.begin > e.begin:
+            return earliest
+        if earliest is None or earliest.begin > e.begin:
             earliest = e
+    return None
+
+def getCalendar( url, check = None ):
+    user_agent = 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'
+    headers = { 'User-Agent' : user_agent }
+    values = {}
+
+    data = urlencode(values).encode('utf-8')
+
+    #req = Request(url, data, headers)
+    req = Request(url, None, headers)
+    response = urlopen(req)
+    r = response.read().decode('iso-8859-1')
+    r = re.sub(r';X-RICAL-TZSOURCE=TZINFO', '', r, flags=re.DOTALL)
+    #print(r)
+    c = Calendar.from_ical(r)
+    earliest = None #c.events[0]
+    for e in c.walk('vevent'):
+        if check is not None and str(e['SUMMARY']).find(check) == -1:
+            continue
+
+        # Remove things that are not a datetime
+        if not isinstance(e['DTSTART'].dt, datetime.datetime):
+            print("For some reason it is not a datetime?")
+            print(e)
+            continue
+
+        # Ignore things in the past
+        if e['DTSTART'].dt.astimezone(tz.tzlocal()).isoformat() < datetime.datetime.now().isoformat():
+            continue
+
+        if earliest is None or earliest['DTSTART'].dt > e['DTSTART'].dt:
+            print(e['SUMMARY']);
+            print(e['DTSTART'].dt);
+            if earliest is not None:
+                print(earliest['DTSTART'].dt);
+            earliest = e
+
+    if earliest is None:
+        return None
+    if earliest['DTSTART'].dt.astimezone(tz.tzlocal()).isoformat() < datetime.datetime.now().isoformat():
+        print (earliest['DTSTART'].dt.astimezone(tz.tzlocal()).isoformat() )
+        print (datetime.datetime.now().isoformat())
+        print("BAD")
+        return None
+    print(earliest)
     return earliest
 
 
 def updateCalendars():
+    global calendars
     print("Updating calendars...")
-    nextMensGame = getCalendar( "http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=9")
-    nextWomensGame = getCalendar( "http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=10")
-    return nextMensGame, nextWomensGame
+    for c in calendars:
+        print("Updating calendar: "+c["name"])
+        c['next'] = getCalendar( c["url"], c["pattern"])
+    
 
-nextMensGame, nextWomensGame = updateCalendars()
+updateCalendars()
 lastCalUpdate = time.time() 
 
-def doGame( nextGame, duration ):
-    global offscreen_canvas, graphics, matrix
+def doGame( nextGame, who, icon, duration ):
+    global offscreen_canvas, graphics, matrix, weather
     posLoc = posNG = offscreen_canvas.width
     t_end = time.time() + duration
     now = time.time()
@@ -180,19 +274,25 @@ def doGame( nextGame, duration ):
         offscreen_canvas.Clear()
         image = Image.new('RGBA', (matrix.width, matrix.height))
         imageDraw = ImageDraw.Draw(image)
-        if nextGame.name.find("Women") != -1:
-            imageDraw.text((36, -2), "Women's Hockey", font=tightfont, fill=orange)
-        else:
-            imageDraw.text((36, -2), "Men's Hockey", font=tightfont, fill=orange)
+        imageDraw.text((36, -2), who, font=tightfont, fill=orange)
         
-        len = imageDraw.text((36, 9), nextGame.begin.astimezone(tz.tzlocal()).strftime("%A")+"{d:%l}:{d.minute:02}{d:%p}".format(d=nextGame.begin.astimezone(tz.tzlocal())), font=smfont, fill=white)
+        len = imageDraw.text((36, 9), nextGame['DTSTART'].dt.astimezone(tz.tzlocal()).strftime("%A")+"{d:%l}:{d.minute:02}{d:%p}".format(d=nextGame['DTSTART'].dt.astimezone(tz.tzlocal())), font=smfont, fill=white)
 
-        if nextGame.location.find("Polisseni") != -1:
-            text = "HOME vs"+ nextGame.name.split(" vs ",1)[1].replace("  "," ")
-            imageDraw.text((posLoc, 16), text, font=medfont, fill=orange)
-        else:
-            text = "Away vs"+nextGame.name.split(" at ",1)[1].replace("  "," ")
-            imageDraw.text((posLoc, 16), text, font=medfont, fill=white)
+        #print(nextGame['SUMMARY'])
+        #if who == "Men's Hockey" or who == "Women's Hockey":
+        #    if nextGame['LOCATION'].find("Polisseni") != -1:
+        #        text = "HOME vs"+ str(nextGame['SUMMARY']).split(" vs ",1)[1].replace("  "," ")
+        #        c=orange
+        #    else:
+        #        text = "Away vs"+str(nextGame['SUMMARY']).split(" at ",1)[1].replace("  "," ")
+        #        c=white
+        #else:
+        #    c=(0,0,255)
+        #    text = str(nextGame['SUMMARY'])
+        c=(0,0,255)
+        text = str(nextGame['SUMMARY'])
+
+        imageDraw.text((posLoc, 16), text, font=medfont, fill=c)
         len = imageDraw.textsize(text, font=medfont)[0]
         posLoc -= 1.5
         if (posLoc + len < 0):
@@ -201,49 +301,35 @@ def doGame( nextGame, duration ):
             #posLoc = image.width
             break
 
-        image.paste(tigerhead, (0, 0), tigerhead)
+        image.paste(icon, (0,0), icon)
+        
+        if weather is not None:
+            weather.update(imageDraw)
         offscreen_canvas.SetImage(image.convert('RGB'), 0, 0)
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
-        until = nextGame.begin.astimezone(tz.tzlocal()).replace(tzinfo=tz.tzlocal()) - datetime.datetime.now().replace(tzinfo=tz.tzlocal())
+        until = nextGame['DTSTART'].dt.astimezone(tz.tzlocal()).replace(tzinfo=tz.tzlocal()) - datetime.datetime.now().replace(tzinfo=tz.tzlocal())
         if until.days > 9:
-            shiftout(symbols[str(" ")])
-            shiftout(symbols[str("d")])
-            shiftout(symbols[str(until.days%10)])
-            shiftout(symbols[str(until.days//10)])
+            putClock(str(until.days)+"d ")
         elif until.days > 0:
             #print(until.seconds//3600)
             #print((until.seconds//60)%60)
             if blink:
-                shiftout(symbols[str(" ")])
-                shiftout(symbols[str("h")])
-                shiftout(symbols[str((until.seconds//3600)%10)])
-                if (until.seconds//3600)//10 > 9:
-                    shiftout(symbols[str((until.seconds//3600)//10)])
+                h = until.seconds//3600
+                if h > 9:
+                    putClock(str(h)+"h ")
                 else:
-                    shiftout(symbols[str(" ")])
+                    putClock(" "+str(h)+"h ")
             else:
-                shiftout(symbols[str(" ")])
-                shiftout(symbols[str("d")])
-                #if until.seconds//3600 > 12 and until.days < 9:
-                #    shiftout(symbols[str(until.days+1)])
-                #else:
-                shiftout(symbols[str(until.days)])
-                shiftout(symbols[str("-")])
+                putClock("-"+str(until.days)+"d ")
         else:
             h = until.seconds//3600
             m = (until.seconds%3600)//60
-            shiftout(symbols[str(m%10)])
-            shiftout(symbols[str(m//10)])
-            shiftout(symbols[str(h%10)])
             if h > 9:
-                shiftout(symbols[str(h//10)])
+                putClock(str(h)+str(m).zfill(2))
             else:
-                shiftout(symbols[str("-")])
+                putClock("-"+str(h)+str(m).zfill(2))
 
-        GPIO.output(PIN_LATCH, 1)
-        time.sleep(0.00000001)
-        GPIO.output(PIN_LATCH, 0)
         time.sleep(.01)
 
 def suffix(d):
@@ -253,8 +339,8 @@ def custom_strftime(format, t):
     return t.strftime(format).replace('{S}', str(t.day) + suffix(t.day))
 
 
-def doClock( duration, temp, weather, icon ):
-    global offscreen_canvas, graphics
+def doClock( duration, temp, forecast, icon ):
+    global offscreen_canvas, graphics, weather
     i=0;
     t_end = time.time() + duration
     while time.time() < t_end:
@@ -263,38 +349,39 @@ def doClock( duration, temp, weather, icon ):
         offscreen_canvas.Clear()
         image = Image.new('RGBA', (matrix.width, matrix.height))
         imageDraw = ImageDraw.Draw(image)
-        image.paste(icon, (0,0) )
-        i = .7-((temp/100)*.7)
-        color = colorsys.hsv_to_rgb(i, 1.0, 1.0)
-        imageDraw.text( (33, 0), str(temp), font=largefont, fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
-        imageDraw.arc( (55,0,59,4),0,360,fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
-        weather = "Partly Cloudy"
-        f = largefont
-        xo = 0
-        len = imageDraw.textsize(weather, font=f)[0]
-        if len > 128-62:
-            f=tightfont
-            xo = 7
-            len = imageDraw.textsize(weather, font=f)[0]
+        if temp is not None and forecast is not None:
+            image.paste(icon, (0,0) )
+            i = .7-((temp/100)*.7)
+            color = colorsys.hsv_to_rgb(i, 1.0, 1.0)
+            imageDraw.text( (33, 0), str(temp), font=largefont, fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
+            imageDraw.arc( (55,0,59,4),0,360,fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
+            #forecast = "Partly Cloudy"
+            f = largefont
+            xo = 0
+            len = imageDraw.textsize(forecast, font=f)[0]
             if len > 128-62:
-                f=smfont
-                xo = 9
-        imageDraw.text( (62, xo), weather, font=f, fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
+                f=tightfont
+                xo = 7
+                len = imageDraw.textsize(forecast, font=f)[0]
+                if len > 128-62:
+                    f=smfont
+                    xo = 9
+            imageDraw.text( (62, xo), forecast, font=f, fill=(int(color[0]*255), int(color[1]*255), int(color[2]*255)))
         imageDraw.text( (33, 20), custom_strftime("%a, %b {S}", datetime.datetime.now()), font=tightfont, fill=white)
+        
+        if weather is not None:
+            weather.update(imageDraw)
         offscreen_canvas.SetImage(image.convert('RGB'), 0, 0)
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
         now = datetime.datetime.now()
-        shiftout(symbols[str(now.minute%10)])
-        shiftout(symbols[str(now.minute//10)])
-        shiftout(symbols[str((now.hour%12)%10)])
-        if (now.hour%12)//10 > 0:
-            shiftout(symbols[str((now.hour%12)//10)])
+        hh = now.hour%12
+        if hh == 0:
+            hh = 12
+        if hh < 10:
+            putClock(" "+str(hh)+str(now.minute).zfill(2))
         else:
-            shiftout(symbols[" "])
-        GPIO.output(PIN_LATCH, 1)
-        time.sleep(0.00000001)
-        GPIO.output(PIN_LATCH, 0)
-        time.sleep(.1);
+            putClock(str(hh)+str(now.minute).zfill(2))
+        time.sleep(.01);
         i+=10
 
 def doTransition():
@@ -314,34 +401,66 @@ def doTransition():
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
         time.sleep(.001);
 
+def animatedGif(duration, delay, fileName):
+    global offscreen_canvas, graphics, matrix
+    t_end = time.time() + duration
+    im = Image.open(fileName)
+    nframe = 0
+    while time.time() < t_end:
+        try:
+            im.seek( nframe )
+            nframe += 1
+        except:
+            nframe = 0
+            im.seek( nframe )
+        offscreen_canvas.Clear()
+        offscreen_canvas.SetImage(im.convert('RGB'), 0, 0)
+        offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+        time.sleep(delay);
+
+
+
 weatherTime = 0
+tempf = None
+forecast = None
+iconImg = None
 try:
     while True:
-        doGame(nextMensGame, 15)
-        doGame(nextWomensGame, 15)
+        #animatedGif(3, .1,  'heihei.gif')
         currentTime = time.time()
         if(lastCalUpdate + 60*60 < time.time()):
-            nextMensGame, nextWomensGame = updateCalendars()
+            updateCalendars()
             lastCalUpdate = currentTime 
-
         if weatherTime+600 < currentTime:
             try:
                 print("Get weather...\n");
                 weatherTime = currentTime
-                f = urlopen('http://api.wunderground.com/api/'+config.wapi+'/geolookup/conditions/q/NY/Rochester.json')
+                f = urlopen('http://api.openweathermap.org/data/2.5/weather?id=5134086&units=imperial&APPID='+config.owmapi)
                 json_string = f.read().decode('utf-8')
                 parsed_json = json.loads(json_string)
-                location = parsed_json['location']['city']
-                tempf = int(round(parsed_json['current_observation']['temp_f']))
-                weather = parsed_json['current_observation']['weather']
-                icon = parsed_json['current_observation']['icon']
-                iconImg = Image.open("icons/32x32/"+icon+".png")
+                print(parsed_json)
+                location = parsed_json['name']
+                tempf = int(round(parsed_json['main']['temp']))
+                forecast = parsed_json['weather'][0]['description'].title()
+                if forecast.upper().find('SNOW') != -1:
+                    weather = Snow(matrix.width, matrix.height)
+                else:
+                    weather = None
+                icon = parsed_json['weather'][0]['icon']
+                iconfile = iconmap[str(parsed_json['weather'][0]['id'])]['icon']
+                print(iconfile)
+                iconImg = Image.open("icons/32x32/"+iconfile+".png")
                 print ("Current temperature in %s is: %s" % (location, tempf))
                 f.close()
-            except:
+            except Exception as e:
+                traceback.print_exc(file=sys.stdout)
                 print ("Can't get weather data\n")
         
-        doClock(5, tempf, weather, iconImg)
+        doClock(5, tempf, forecast, iconImg)
+
+        for c in calendars:
+            if c['next'] is not None:
+                doGame(c['next'], c['name'], c['icon'], 15)
 
 finally:
     GPIO.cleanup() 
