@@ -11,6 +11,7 @@ import json
 import config
 import re
 from snow import Snow
+from rain import Rain
 
 from io import BytesIO
 
@@ -442,8 +443,11 @@ try:
                 location = parsed_json['name']
                 tempf = int(round(parsed_json['main']['temp']))
                 forecast = parsed_json['weather'][0]['description'].title()
+                #forecast = "Heavy Rain"
                 if forecast.upper().find('SNOW') != -1:
                     weather = Snow(matrix.width, matrix.height)
+                elif forecast.upper().find('RAIN') != -1:
+                    weather = Rain(matrix.width, matrix.height, forecast)
                 else:
                     weather = None
                 icon = parsed_json['weather'][0]['icon']
