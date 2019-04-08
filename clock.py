@@ -10,6 +10,7 @@ import os
 import json
 import config
 import re
+from pytz import timezone
 from snow import Snow
 from rain import Rain
 
@@ -84,12 +85,17 @@ image = Image.open("rithockey.png")
 rithockey = Image.new('RGBA', (matrix.width, matrix.height))
 rithockey.paste(image, (0,0), mask=image)
 
+image = Image.open("cougars.png")
+cougars = Image.new('RGBA', (matrix.width, matrix.height))
+cougars.paste(image, (0,0), mask=image)
+
 calendars = [ 
-{ "name":"Red Sox", "url":"http://api.calreply.net/webcal/24b4e4c1-ac1b-4c0f-ac16-f0f730736b56", "icon":sox, "pattern":None},
-{ "name":"Men's Hockey", "url":"http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=9", "icon":tigerhead, "pattern":None},
-{ "name":"Women's Hockey", "url":"http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=10", "icon":tigerhead, "pattern":None},
-{ "name":"Barons", "url":"http://sectionvhockey.org/calendar_events/calendar/3095/168976/-1/0/0/none/true.ics?1543938015", "icon":blues, "pattern":"Bighton"},
-{ "name":"Blues", "url":"http://my.sportngin.com/ical/my_teams?team_ids[]=2920662", "icon":barons, "pattern":None}
+{ "name":"Cougars", "url":"http://srv1-advancedview.rschooltoday.com/public/conference/ical/u/0072159751ae796db2fa55b70a1578c3", "icon":cougars, "pattern":None, "exclude":"Date Changed to"},
+{ "name":"Red Sox", "url":"http://api.calreply.net/webcal/24b4e4c1-ac1b-4c0f-ac16-f0f730736b56", "icon":sox, "pattern":None, "exclude":None},
+{ "name":"Men's Hockey", "url":"http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=9", "icon":tigerhead, "pattern":None, "exclude":None},
+{ "name":"Women's Hockey", "url":"http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=10", "icon":tigerhead, "pattern":None, "exclude":None},
+{ "name":"Barons", "url":"http://sectionvhockey.org/calendar_events/calendar/3095/168976/-1/0/0/none/true.ics?1543938015", "icon":blues, "pattern":"Bighton", "exclude":None},
+{ "name":"Blues", "url":"http://my.sportngin.com/ical/my_teams?team_ids[]=2920662", "icon":barons, "pattern":None, "exclude":None}
 ]
 
 
@@ -200,7 +206,8 @@ def oldgetCalendar( url, check = None ):
             earliest = e
     return None
 
-def getCalendar( url, check = None ):
+def getCalendar( url, check = None, exclude = None ):
+    local_tz = timezone('America/New_York')
     user_agent = 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'
     headers = { 'User-Agent' : user_agent }
     values = {}
@@ -219,12 +226,19 @@ def getCalendar( url, check = None ):
         if check is not None and str(e['SUMMARY']).find(check) == -1:
             continue
 
+        if exclude is not None and str(e['SUMMARY']).find(exclude) != -1:
+            continue
+
         # Remove things that are not a datetime
         if not isinstance(e['DTSTART'].dt, datetime.datetime):
             print("For some reason it is not a datetime?")
             print(e)
             continue
-
+      
+        # Localize if necessary
+        if e['DTSTART'].dt.tzinfo is None:
+            e['DTSTART'].dt = local_tz.localize(e['DTSTART'].dt)
+    
         # Ignore things in the past
         if e['DTSTART'].dt.astimezone(tz.tzlocal()).isoformat() < datetime.datetime.now().isoformat():
             continue
@@ -252,7 +266,7 @@ def updateCalendars():
     print("Updating calendars...")
     for c in calendars:
         print("Updating calendar: "+c["name"])
-        c['next'] = getCalendar( c["url"], c["pattern"])
+        c['next'] = getCalendar( c["url"], c["pattern"], c["exclude"])
     
 
 updateCalendars()
@@ -292,6 +306,8 @@ def doGame( nextGame, who, icon, duration ):
         #    text = str(nextGame['SUMMARY'])
         c=(0,0,255)
         text = str(nextGame['SUMMARY'])
+
+        text = re.sub(r'Baseball: .* vs. ', '', text)
 
         imageDraw.text((posLoc, 16), text, font=medfont, fill=c)
         len = imageDraw.textsize(text, font=medfont)[0]
