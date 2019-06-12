@@ -10,6 +10,7 @@ import os
 import json
 import config
 import re
+import statsapi
 from pytz import timezone
 from snow import Snow
 from rain import Rain
@@ -27,6 +28,8 @@ from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 from PIL import Image
 from PIL import ImageDraw
 from PIL import ImageFont
+from PIL import ImageOps    
+
 
 from movingpanel import MovingPanel
 from movingpanel import Direction
@@ -179,6 +182,7 @@ tightfont =  ImageFont.load(os.path.dirname(os.path.realpath(__file__)) + "/font
 largefont =  ImageFont.load(os.path.dirname(os.path.realpath(__file__)) + "/fonts/10x20.pil")
 
 white  = (200, 200, 200)
+red    = (255, 20, 20)
 yellow = (255, 255, 0)
 orange = (255, 165, 0)
 
@@ -280,6 +284,8 @@ def doGame( nextGame, who, icon, duration ):
     btime = time.time() + 2
     blink = 0
 
+    image = Image.new('RGBA', (matrix.width, matrix.height))
+    imageDraw = ImageDraw.Draw(image)
     while now < t_end:
         now = time.time()
         if btime < now:
@@ -287,11 +293,14 @@ def doGame( nextGame, who, icon, duration ):
             btime = now+2
 
         offscreen_canvas.Clear()
-        image = Image.new('RGBA', (matrix.width, matrix.height))
-        imageDraw = ImageDraw.Draw(image)
+        imageDraw.rectangle((0,0,matrix.width, matrix.height), fill=(0,0,0,0))
         imageDraw.text((36, -2), who, font=tightfont, fill=orange)
-        
-        len = imageDraw.text((36, 9), nextGame['DTSTART'].dt.astimezone(tz.tzlocal()).strftime("%A")+"{d:%l}:{d.minute:02}{d:%p}".format(d=nextGame['DTSTART'].dt.astimezone(tz.tzlocal())), font=smfont, fill=white)
+        until = nextGame['DTSTART'].dt.astimezone(tz.tzlocal()).replace(tzinfo=tz.tzlocal()) - datetime.datetime.now().replace(tzinfo=tz.tzlocal())
+       
+        if(until.days < 7):
+            len = imageDraw.text((36, 9), nextGame['DTSTART'].dt.astimezone(tz.tzlocal()).strftime("%A")+"{d:%l}:{d.minute:02}{d:%p}".format(d=nextGame['DTSTART'].dt.astimezone(tz.tzlocal())), font=smfont, fill=white)
+        else:
+            len = imageDraw.text((36, 9), nextGame['DTSTART'].dt.astimezone(tz.tzlocal()).strftime("%Y/%m/%d").format(d=nextGame['DTSTART'].dt.astimezone(tz.tzlocal())), font=smfont, fill=white)
 
         #print(nextGame['SUMMARY'])
         #if who == "Men's Hockey" or who == "Women's Hockey":
@@ -325,7 +334,6 @@ def doGame( nextGame, who, icon, duration ):
         offscreen_canvas.SetImage(image.convert('RGB'), 0, 0)
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
-        until = nextGame['DTSTART'].dt.astimezone(tz.tzlocal()).replace(tzinfo=tz.tzlocal()) - datetime.datetime.now().replace(tzinfo=tz.tzlocal())
         if until.days > 9:
             putClock(str(until.days)+"d ")
         elif until.days > 0:
@@ -360,12 +368,13 @@ def doClock( duration, temp, forecast, icon ):
     global offscreen_canvas, graphics, weather
     i=0;
     t_end = time.time() + duration
+    image = Image.new('RGBA', (matrix.width, matrix.height))
+    imageDraw = ImageDraw.Draw(image)
     while time.time() < t_end:
         #color = colorsys.hsv_to_rgb(i/1000, 1.0, 1.0)
         #print(color)
         offscreen_canvas.Clear()
-        image = Image.new('RGBA', (matrix.width, matrix.height))
-        imageDraw = ImageDraw.Draw(image)
+        imageDraw.rectangle((0,0,matrix.width, matrix.height), fill=(0,0,0,0))
         if temp is not None and forecast is not None:
             image.paste(icon, (0,0) )
             i = .7-((temp/100)*.7)
@@ -400,6 +409,44 @@ def doClock( duration, temp, forecast, icon ):
             putClock(str(hh)+str(now.minute).zfill(2))
         time.sleep(.01);
         i+=10
+
+teamNameCache = {}
+def baseballStandings( duration ):
+    global offscreen_canvas, graphics, weather, teamNameCache
+    r = statsapi.get('standings', {'leagueId':103, 'season':2019})
+    standings = ""
+    t_end = time.time() + duration
+    image = Image.new('RGBA', (matrix.width, matrix.height))
+    imageDraw = ImageDraw.Draw(image)
+    while time.time() < t_end:
+        ypos = 0;
+        imageDraw.rectangle((0,0,matrix.width, matrix.height), fill=(0,0,0,0))
+        for y in (y for y in r['records'] if y['division']['id']==201):
+            for x in y['teamRecords']:
+                if x['team']['name'] not in teamNameCache:
+                    teamNameCache[x['team']['name']] = statsapi.lookup_team(x['team']['name'])[0]['teamName']#.upper()
+                if teamNameCache[x['team']['name']] == "Red Sox":
+                    c = red
+                else:
+                    c = white
+                line = "%10s %d %d %s %s\n" % (teamNameCache[x['team']['name']], x['wins'], x['losses'], x['winningPercentage'], x['gamesBack'])
+                imageDraw.text( (0, ypos), line, font=smfont, fill=c)
+                ypos += 8
+        if weather is not None:
+            weather.update(imageDraw)
+        offscreen_canvas.Clear()
+        offscreen_canvas.SetImage(image.convert('RGB'), 0, 0)
+        offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+        now = datetime.datetime.now()
+        hh = now.hour%12
+        if hh == 0:
+            hh = 12
+        if hh < 10:
+            putClock(" "+str(hh)+str(now.minute).zfill(2))
+        else:
+            putClock(str(hh)+str(now.minute).zfill(2))
+        time.sleep(.01);
+
 
 def doTransition():
     global offscreen_canvas, graphics, matrix
@@ -436,13 +483,14 @@ def animatedGif(duration, delay, fileName):
         time.sleep(delay);
 
 
-
 weatherTime = 0
 tempf = None
 forecast = None
 iconImg = None
+# https://gist.github.com/tbranyen/62d974681dea8ee0caa1
 try:
     while True:
+        baseballStandings(10);
         #animatedGif(3, .1,  'heihei.gif')
         currentTime = time.time()
         if(lastCalUpdate + 60*60 < time.time()):
@@ -470,6 +518,8 @@ try:
                 iconfile = iconmap[str(parsed_json['weather'][0]['id'])]['icon']
                 print(iconfile)
                 iconImg = Image.open("icons/32x32/"+iconfile+".png")
+                #iconImg = Image.open("weather-icons/svg/wi-"+iconfile+".png")
+                iconImg = ImageOps.solarize(iconImg)
                 print ("Current temperature in %s is: %s" % (location, tempf))
                 f.close()
             except Exception as e:
