@@ -93,12 +93,12 @@ cougars = Image.new('RGBA', (matrix.width, matrix.height))
 cougars.paste(image, (0,0), mask=image)
 
 calendars = [ 
-{ "name":"Cougars", "url":"http://srv1-advancedview.rschooltoday.com/public/conference/ical/u/0072159751ae796db2fa55b70a1578c3", "icon":cougars, "pattern":None, "exclude":"Date Changed to"},
-{ "name":"Red Sox", "url":"http://api.calreply.net/webcal/24b4e4c1-ac1b-4c0f-ac16-f0f730736b56", "icon":sox, "pattern":None, "exclude":None},
+#{ "name":"Cougars", "url":"http://srv1-advancedview.rschooltoday.com/public/conference/ical/u/0072159751ae796db2fa55b70a1578c3", "icon":cougars, "pattern":None, "exclude":"Date Changed to"},
+{ "name":"Boston Red Sox", "url":"http://api.calreply.net/webcal/24b4e4c1-ac1b-4c0f-ac16-f0f730736b56", "icon":sox, "pattern":None, "exclude":None},
 { "name":"Men's Hockey", "url":"http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=9", "icon":tigerhead, "pattern":None, "exclude":None},
 { "name":"Women's Hockey", "url":"http://www.ritathletics.com/calendar.ashx/calendar.ics?sport_id=10", "icon":tigerhead, "pattern":None, "exclude":None},
-{ "name":"Barons", "url":"http://sectionvhockey.org/calendar_events/calendar/3095/168976/-1/0/0/none/true.ics?1543938015", "icon":blues, "pattern":"Bighton", "exclude":None},
-{ "name":"Blues", "url":"http://my.sportngin.com/ical/my_teams?team_ids[]=2920662", "icon":barons, "pattern":None, "exclude":None}
+#{ "name":"Barons", "url":"http://sectionvhockey.org/calendar_events/calendar/3095/168976/-1/0/0/none/true.ics?1543938015", "icon":blues, "pattern":"Bighton", "exclude":None}
+#{ "name":"Blues", "url":"http://my.sportngin.com/ical/my_teams?team_ids[]=2920662", "icon":barons, "pattern":None, "exclude":None}
 ]
 
 
@@ -313,8 +313,11 @@ def doGame( nextGame, who, icon, duration ):
         #else:
         #    c=(0,0,255)
         #    text = str(nextGame['SUMMARY'])
+        text = str(nextGame['SUMMARY']).replace(who+" at ",'Away vs ')
+        text = text.replace(who+" @ ",'Away vs ')
+        text = text.replace(who+" vs ",'HOME vs ')
         c=(0,0,255)
-        text = str(nextGame['SUMMARY'])
+        #text = str(nextGame['SUMMARY'])
 
         text = re.sub(r'Baseball: .* vs. ', '', text)
 
@@ -413,39 +416,42 @@ def doClock( duration, temp, forecast, icon ):
 teamNameCache = {}
 def baseballStandings( duration ):
     global offscreen_canvas, graphics, weather, teamNameCache
-    r = statsapi.get('standings', {'leagueId':103, 'season':2019})
-    standings = ""
-    t_end = time.time() + duration
-    image = Image.new('RGBA', (matrix.width, matrix.height))
-    imageDraw = ImageDraw.Draw(image)
-    while time.time() < t_end:
-        ypos = 0;
-        imageDraw.rectangle((0,0,matrix.width, matrix.height), fill=(0,0,0,0))
-        for y in (y for y in r['records'] if y['division']['id']==201):
-            for x in y['teamRecords']:
-                if x['team']['name'] not in teamNameCache:
-                    teamNameCache[x['team']['name']] = statsapi.lookup_team(x['team']['name'])[0]['teamName']#.upper()
-                if teamNameCache[x['team']['name']] == "Red Sox":
-                    c = red
-                else:
-                    c = white
-                line = "%10s %d %d %s %s\n" % (teamNameCache[x['team']['name']], x['wins'], x['losses'], x['winningPercentage'], x['gamesBack'])
-                imageDraw.text( (0, ypos), line, font=smfont, fill=c)
-                ypos += 8
-        if weather is not None:
-            weather.update(imageDraw)
-        offscreen_canvas.Clear()
-        offscreen_canvas.SetImage(image.convert('RGB'), 0, 0)
-        offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
-        now = datetime.datetime.now()
-        hh = now.hour%12
-        if hh == 0:
-            hh = 12
-        if hh < 10:
-            putClock(" "+str(hh)+str(now.minute).zfill(2))
-        else:
-            putClock(str(hh)+str(now.minute).zfill(2))
-        time.sleep(.01);
+    try:
+        r = statsapi.get('standings', {'leagueId':103, 'season':2019})
+        standings = ""
+        t_end = time.time() + duration
+        image = Image.new('RGBA', (matrix.width, matrix.height))
+        imageDraw = ImageDraw.Draw(image)
+        while time.time() < t_end:
+            ypos = 0;
+            imageDraw.rectangle((0,0,matrix.width, matrix.height), fill=(0,0,0,0))
+            for y in (y for y in r['records'] if y['division']['id']==201):
+                for x in y['teamRecords']:
+                    if x['team']['name'] not in teamNameCache:
+                        teamNameCache[x['team']['name']] = statsapi.lookup_team(x['team']['name'])[0]['teamName']#.upper()
+                    if teamNameCache[x['team']['name']] == "Red Sox":
+                        c = red
+                    else:
+                        c = white
+                    line = "%10s %d %d %s %s\n" % (teamNameCache[x['team']['name']], x['wins'], x['losses'], x['winningPercentage'], x['gamesBack'])
+                    imageDraw.text( (-2, ypos), line, font=smfont, fill=c)
+                    ypos += 8
+            if weather is not None:
+                weather.update(imageDraw)
+            offscreen_canvas.Clear()
+            offscreen_canvas.SetImage(image.convert('RGB'), 0, 0)
+            offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+            now = datetime.datetime.now()
+            hh = now.hour%12
+            if hh == 0:
+                hh = 12
+            if hh < 10:
+                putClock(" "+str(hh)+str(now.minute).zfill(2))
+            else:
+                putClock(str(hh)+str(now.minute).zfill(2))
+            time.sleep(.01);
+    except:
+        print("Something wrong with MLB again");
 
 
 def doTransition():
